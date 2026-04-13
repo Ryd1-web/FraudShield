@@ -3,20 +3,29 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Mobile Money Fraud Detection API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: transactions
+    description: Transaction management
+  - name: fraud
+    description: Fraud detection
+  - name: simulator
+    description: Transaction simulation
+  - name: analytics
+    description: Research analytics and metrics
+  - name: config
+    description: Model configuration
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +33,285 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List all transactions
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          name: flaggedOnly
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Transaction"
+                  total:
+                    type: integer
+                required:
+                  - transactions
+                  - total
+    post:
+      operationId: createTransaction
+      tags: [transactions]
+      summary: Create and analyze a transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransactionBody"
+      responses:
+        "201":
+          description: Transaction created with fraud analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /transactions/{id}:
+    get:
+      operationId: getTransaction
+      tags: [transactions]
+      summary: Get a single transaction
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transaction details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /simulator/generate:
+    post:
+      operationId: generateTransactions
+      tags: [simulator]
+      summary: Generate synthetic transactions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulatorConfig"
+      responses:
+        "200":
+          description: Generated transactions with fraud analysis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Transaction"
+                  summary:
+                    $ref: "#/components/schemas/SimulationSummary"
+                required:
+                  - transactions
+                  - summary
+
+  /simulator/reset:
+    post:
+      operationId: resetSimulator
+      tags: [simulator]
+      summary: Reset all transaction data
+      responses:
+        "200":
+          description: Reset successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                required:
+                  - message
+
+  /fraud/analyze:
+    post:
+      operationId: analyzeFraud
+      tags: [fraud]
+      summary: Analyze a transaction for fraud
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransactionBody"
+      responses:
+        "200":
+          description: Fraud analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FraudAnalysis"
+
+  /fraud/alerts:
+    get:
+      operationId: getFraudAlerts
+      tags: [fraud]
+      summary: Get recent fraud alerts
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Recent fraud alerts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FraudAlert"
+                required:
+                  - alerts
+
+  /analytics/dashboard:
+    get:
+      operationId: getDashboardStats
+      tags: [analytics]
+      summary: Get dashboard summary statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /analytics/metrics:
+    get:
+      operationId: getModelMetrics
+      tags: [analytics]
+      summary: Get ML model evaluation metrics
+      responses:
+        "200":
+          description: Model metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelMetrics"
+
+  /analytics/roc-curve:
+    get:
+      operationId: getRocCurve
+      tags: [analytics]
+      summary: Get ROC curve data points
+      responses:
+        "200":
+          description: ROC curve data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RocPoint"
+                  auc:
+                    type: number
+                required:
+                  - points
+                  - auc
+
+  /analytics/transaction-volume:
+    get:
+      operationId: getTransactionVolume
+      tags: [analytics]
+      summary: Get transaction volume over time
+      responses:
+        "200":
+          description: Volume data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VolumeDataPoint"
+                required:
+                  - data
+
+  /analytics/export:
+    get:
+      operationId: exportData
+      tags: [analytics]
+      summary: Export transaction data as CSV
+      responses:
+        "200":
+          description: CSV data
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /config:
+    get:
+      operationId: getConfig
+      tags: [config]
+      summary: Get current model configuration
+      responses:
+        "200":
+          description: Configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfig"
+    put:
+      operationId: updateConfig
+      tags: [config]
+      summary: Update model configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelConfig"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfig"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +322,448 @@ components:
       required:
         - status
 
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [send, receive, withdraw, agent_deposit, agent_withdrawal, airtime, bill_payment]
+        amount:
+          type: number
+        currency:
+          type: string
+        senderPhone:
+          type: string
+        recipientPhone:
+          type: string
+        senderLocation:
+          type: string
+        deviceId:
+          type: string
+        timestamp:
+          type: string
+        accountAge:
+          type: integer
+          description: Account age in days
+        previousTxCount:
+          type: integer
+        riskScore:
+          type: number
+        isFraud:
+          type: boolean
+        fraudLabel:
+          type: string
+          enum: [clean, suspicious, fraudulent]
+        fraudAnalysis:
+          $ref: "#/components/schemas/FraudAnalysis"
+        createdAt:
+          type: string
+      required:
+        - id
+        - type
+        - amount
+        - currency
+        - senderPhone
+        - senderLocation
+        - deviceId
+        - timestamp
+        - accountAge
+        - previousTxCount
+        - riskScore
+        - isFraud
+        - fraudLabel
+        - createdAt
+
+    CreateTransactionBody:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [send, receive, withdraw, agent_deposit, agent_withdrawal, airtime, bill_payment]
+        amount:
+          type: number
+        currency:
+          type: string
+          default: NGN
+        senderPhone:
+          type: string
+        recipientPhone:
+          type: string
+        senderLocation:
+          type: string
+        deviceId:
+          type: string
+        accountAge:
+          type: integer
+        previousTxCount:
+          type: integer
+        hourOfDay:
+          type: integer
+        isNewDevice:
+          type: boolean
+        distanceFromHome:
+          type: number
+      required:
+        - type
+        - amount
+        - senderPhone
+        - senderLocation
+        - deviceId
+
+    FraudAnalysis:
+      type: object
+      properties:
+        riskScore:
+          type: number
+          description: Risk score 0-100
+        isFraud:
+          type: boolean
+        fraudLabel:
+          type: string
+          enum: [clean, suspicious, fraudulent]
+        triggeredRules:
+          type: array
+          items:
+            type: string
+        featureImportance:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeatureImportance"
+        explanation:
+          type: string
+        modelUsed:
+          type: string
+        confidence:
+          type: number
+      required:
+        - riskScore
+        - isFraud
+        - fraudLabel
+        - triggeredRules
+        - featureImportance
+        - explanation
+        - modelUsed
+        - confidence
+
+    FeatureImportance:
+      type: object
+      properties:
+        feature:
+          type: string
+        value:
+          type: number
+        importance:
+          type: number
+        direction:
+          type: string
+          enum: [increases_risk, decreases_risk, neutral]
+        description:
+          type: string
+      required:
+        - feature
+        - value
+        - importance
+        - direction
+        - description
+
+    FraudAlert:
+      type: object
+      properties:
+        id:
+          type: string
+        transactionId:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        riskScore:
+          type: number
+        amount:
+          type: number
+        senderPhone:
+          type: string
+        type:
+          type: string
+        timestamp:
+          type: string
+        explanation:
+          type: string
+        triggeredRules:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - transactionId
+        - severity
+        - riskScore
+        - amount
+        - senderPhone
+        - type
+        - timestamp
+        - explanation
+        - triggeredRules
+
+    SimulatorConfig:
+      type: object
+      properties:
+        count:
+          type: integer
+          default: 10
+        fraudRate:
+          type: number
+          description: Fraction 0-1 of transactions to be fraudulent
+          default: 0.15
+        location:
+          type: string
+          default: Lagos
+        amountRange:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+          required:
+            - min
+            - max
+        transactionTypes:
+          type: array
+          items:
+            type: string
+        includeAgentTransactions:
+          type: boolean
+          default: true
+      required:
+        - count
+
+    SimulationSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+        flagged:
+          type: integer
+        fraudulent:
+          type: integer
+        avgRiskScore:
+          type: number
+        totalAmount:
+          type: number
+      required:
+        - total
+        - flagged
+        - fraudulent
+        - avgRiskScore
+        - totalAmount
+
+    DashboardStats:
+      type: object
+      properties:
+        totalTransactions:
+          type: integer
+        flaggedTransactions:
+          type: integer
+        fraudulentTransactions:
+          type: integer
+        totalAmount:
+          type: number
+        avgRiskScore:
+          type: number
+        fraudRate:
+          type: number
+        recentAlerts:
+          type: integer
+        blockedAmount:
+          type: number
+        byType:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              count:
+                type: integer
+              fraudCount:
+                type: integer
+            required:
+              - type
+              - count
+              - fraudCount
+        byLocation:
+          type: array
+          items:
+            type: object
+            properties:
+              location:
+                type: string
+              count:
+                type: integer
+              fraudCount:
+                type: integer
+            required:
+              - location
+              - count
+              - fraudCount
+      required:
+        - totalTransactions
+        - flaggedTransactions
+        - fraudulentTransactions
+        - totalAmount
+        - avgRiskScore
+        - fraudRate
+        - recentAlerts
+        - blockedAmount
+        - byType
+        - byLocation
+
+    ModelMetrics:
+      type: object
+      properties:
+        precision:
+          type: number
+        recall:
+          type: number
+        f1Score:
+          type: number
+        accuracy:
+          type: number
+        specificity:
+          type: number
+        falsePositiveRate:
+          type: number
+        falseNegativeRate:
+          type: number
+        truePositives:
+          type: integer
+        trueNegatives:
+          type: integer
+        falsePositives:
+          type: integer
+        falseNegatives:
+          type: integer
+        auc:
+          type: number
+      required:
+        - precision
+        - recall
+        - f1Score
+        - accuracy
+        - specificity
+        - falsePositiveRate
+        - falseNegativeRate
+        - truePositives
+        - trueNegatives
+        - falsePositives
+        - falseNegatives
+        - auc
+
+    RocPoint:
+      type: object
+      properties:
+        fpr:
+          type: number
+        tpr:
+          type: number
+        threshold:
+          type: number
+      required:
+        - fpr
+        - tpr
+        - threshold
+
+    VolumeDataPoint:
+      type: object
+      properties:
+        time:
+          type: string
+        total:
+          type: integer
+        fraudulent:
+          type: integer
+        suspicious:
+          type: integer
+        clean:
+          type: integer
+      required:
+        - time
+        - total
+        - fraudulent
+        - suspicious
+        - clean
+
+    ModelConfig:
+      type: object
+      properties:
+        activeModels:
+          type: object
+          properties:
+            ruleBased:
+              type: boolean
+            anomalyDetection:
+              type: boolean
+            logisticRegression:
+              type: boolean
+          required:
+            - ruleBased
+            - anomalyDetection
+            - logisticRegression
+        thresholds:
+          type: object
+          properties:
+            suspicious:
+              type: number
+              description: Score above which a transaction is suspicious
+            fraudulent:
+              type: number
+              description: Score above which a transaction is fraudulent
+            block:
+              type: number
+              description: Score above which a transaction is blocked
+          required:
+            - suspicious
+            - fraudulent
+            - block
+        weights:
+          type: object
+          properties:
+            ruleBased:
+              type: number
+            anomalyDetection:
+              type: number
+            logisticRegression:
+              type: number
+          required:
+            - ruleBased
+            - anomalyDetection
+            - logisticRegression
+        featureFlags:
+          type: object
+          properties:
+            velocityCheck:
+              type: boolean
+            geolocationCheck:
+              type: boolean
+            deviceFingerprint:
+              type: boolean
+            accountAgeCheck:
+              type: boolean
+            amountAnomaly:
+              type: boolean
+            timePattern:
+              type: boolean
+          required:
+            - velocityCheck
+            - geolocationCheck
+            - deviceFingerprint
+            - accountAgeCheck
+            - amountAnomaly
+            - timePattern
+      required:
+        - activeModels
+        - thresholds
+        - weights
+        - featureFlags
