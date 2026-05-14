@@ -23,6 +23,13 @@ export default defineConfig({
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
+    ...(process.env.ANALYZE === "true"
+      ? [
+          await import("rollup-plugin-visualizer").then((m) =>
+            m.visualizer({ filename: path.resolve(import.meta.dirname, "dist/stats.html"), gzipSize: true }),
+          ),
+        ]
+      : []),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
@@ -48,7 +55,31 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
+            return "vendor-react";
+          }
+          if (
+            id.includes("node_modules/chart") ||
+            id.includes("node_modules/recharts") ||
+            id.includes("node_modules/d3") ||
+            id.includes("node_modules/victory") ||
+            id.includes("node_modules/chart.js") ||
+            id.includes("node_modules/@nivo")
+          ) {
+            return "vendor-charts";
+          }
+          // Let Rollup decide on other node_modules to avoid circular chunk warnings
+          return undefined;
+        },
+      },
+    },
   },
+
   server: {
     port,
     host: "0.0.0.0",
