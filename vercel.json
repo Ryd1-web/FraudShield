@@ -1,7 +1,7 @@
 {
   "version": 2,
   "installCommand": "corepack enable pnpm && corepack use pnpm@9 && pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm run build:vercel",
+  "buildCommand": "pnpm -w run build:vercel",
   "functions": {
     "api/**/*.ts": {
       "runtime": "nodejs20.x"
