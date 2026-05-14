@@ -73,7 +73,7 @@ This makes FraudShield useful as an academic/demo environment for exploring dete
 ### Install
 
 ```bash
-pnpm install --no-frozen-lockfile
+pnpm install
 ```
 
 ### Environment
