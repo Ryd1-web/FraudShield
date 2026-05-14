@@ -22,7 +22,31 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
+    ...(process.env.NODE_ENV !== "production" ? [runtimeErrorOverlay()] : []),
+    ...(process.env.NODE_ENV === "production"
+      ? [
+          // Strip sourceMappingURL comments from dependencies so Vite
+          // doesn't attempt to resolve broken original locations.
+          {
+            name: "strip-source-mapping-url",
+            enforce: "pre",
+            transform(code: string, id: string) {
+              if (typeof code === "string" && code.indexOf("sourceMappingURL=") !== -1) {
+                const cleaned = code.replace(/\/\/#[ \t]*sourceMappingURL=.*$/gm, "");
+                return { code: cleaned, map: null };
+              }
+              return null;
+            },
+            renderChunk(code: string) {
+              if (typeof code === "string" && code.indexOf("sourceMappingURL=") !== -1) {
+                const cleaned = code.replace(/\/\/#[ \t]*sourceMappingURL=.*$/gm, "");
+                return { code: cleaned, map: null };
+              }
+              return null;
+            },
+          },
+        ]
+      : []),
     ...(process.env.ANALYZE === "true"
       ? [
           await import("rollup-plugin-visualizer").then((m) =>
@@ -78,6 +102,9 @@ export default defineConfig({
         },
       },
     },
+  },
+  css: {
+    devSourcemap: false,
   },
 
   server: {
