@@ -49,7 +49,7 @@ export default defineConfig({
       : []),
     ...(process.env.ANALYZE === "true"
       ? [
-          await import("rollup-plugin-visualizer").then((m) =>
+          await import("rollup-plugin-visualizer" as any).then((m) =>
             m.visualizer({ filename: path.resolve(import.meta.dirname, "dist/stats.html"), gzipSize: true }),
           ),
         ]

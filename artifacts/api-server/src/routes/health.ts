@@ -1,11 +1,12 @@
-import { Router, type IRouter } from "express";
-import { HealthCheckResponse } from "@workspace/api-zod";
+import { Router, Request, Response } from "express";
 
-const router: IRouter = Router();
+const router = Router();
 
-router.get("/", (_req, res) => {
-  const data = HealthCheckResponse.parse({ status: "ok" });
-  return res.json(data);
+router.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: "ok",
+    message: "FraudShield API running",
+  });
 });
 
 export default router;
