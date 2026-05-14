@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useListTransactions } from "@workspace/api-client-react";
 import { formatNGN, formatTxType, getRiskBg, getFraudLabelBg } from "@/lib/utils";
+import { BROWSER_TRANSACTIONS_CHANGED, getBrowserTransactions, type BrowserTransaction } from "@/lib/browserTransactions";
 import { BrainCircuit, ArrowUp, ArrowDown, Minus } from "lucide-react";
 
 function SHAPBar({ feature, value, importance, direction, description }: {
@@ -40,12 +42,35 @@ function SHAPBar({ feature, value, importance, direction, description }: {
 }
 
 export default function Explainability() {
+  const [browserTransactions, setBrowserTransactions] = useState<BrowserTransaction[]>(() => getBrowserTransactions());
+
+  useEffect(() => {
+    const refreshBrowserTransactions = () => setBrowserTransactions(getBrowserTransactions());
+
+    window.addEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+    window.addEventListener("storage", refreshBrowserTransactions);
+
+    return () => {
+      window.removeEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+      window.removeEventListener("storage", refreshBrowserTransactions);
+    };
+  }, []);
+
   const { data, isLoading } = useListTransactions(
     { limit: 50, flaggedOnly: true },
     { query: { refetchInterval: 15000 } }
   );
 
-  const flaggedTxns = (data?.transactions ?? []).filter(tx => tx.fraudLabel !== "clean").slice(0, 8);
+  const apiTransactions = data?.transactions ?? [];
+  const apiIds = new Set(apiTransactions.map(tx => tx.id));
+  const combinedTransactions = [
+    ...apiTransactions,
+    ...browserTransactions.filter(tx => !apiIds.has(tx.id)),
+  ];
+  const flaggedTxns = combinedTransactions
+    .filter(tx => tx.fraudLabel !== "clean" && tx.fraudAnalysis)
+    .sort((a, b) => b.riskScore - a.riskScore)
+    .slice(0, 8);
 
   return (
     <div className="p-8 space-y-6 max-w-6xl mx-auto">
@@ -68,7 +93,7 @@ export default function Explainability() {
         </p>
       </div>
 
-      {isLoading ? (
+      {isLoading && browserTransactions.length === 0 ? (
         <div className="space-y-4">
           {[...Array(3)].map((_, i) => (
             <div key={i} className="bg-card border border-card-border rounded-lg p-6 animate-pulse space-y-3">

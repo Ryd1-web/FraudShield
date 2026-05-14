@@ -3,7 +3,8 @@ import { useGenerateTransactions, useResetSimulator } from "@workspace/api-clien
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetDashboardStatsQueryKey, getListTransactionsQueryKey, getGetFraudAlertsQueryKey } from "@workspace/api-client-react";
 import { formatNGN, formatTxType, getRiskBg, getFraudLabelBg } from "@/lib/utils";
-import { Database, RefreshCw, Trash2, Play } from "lucide-react";
+import { clearBrowserTransactions, saveBrowserTransactions } from "@/lib/browserTransactions";
+import { AlertTriangle, Database, Info, RefreshCw, Trash2, Play } from "lucide-react";
 
 const NIGERIAN_CITIES = [
   "Lagos", "Abuja", "Kano", "Ibadan", "Port Harcourt", "Benin City",
@@ -12,6 +13,135 @@ const NIGERIAN_CITIES = [
 ];
 
 const TX_TYPES = ["send", "receive", "withdraw", "agent_deposit", "agent_withdrawal", "airtime", "bill_payment"];
+const HIGH_RISK_CITIES = ["Maiduguri", "Sokoto", "Zaria"];
+const PHONE_PREFIXES = ["0803", "0806", "0810", "0813", "0814", "0816", "0903", "0906", "0805", "0807", "0811", "0815", "0905", "0802", "0808", "0812", "0701", "0708", "0902", "0809", "0818", "0819", "0909"];
+
+function randomInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randomChoice<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function generatePhone() {
+  return `${randomChoice(PHONE_PREFIXES)}${randomInt(1000000, 9999999)}`;
+}
+
+function analyzeLocalFraud(tx: any) {
+  const triggeredRules: string[] = [];
+  let riskScore = 6;
+
+  if (tx.amount > 200000) {
+    riskScore += 24;
+    triggeredRules.push("Large amount transaction");
+  }
+  if (tx.amount > 500000) {
+    riskScore += 18;
+    triggeredRules.push("Very high value transfer");
+  }
+  if (HIGH_RISK_CITIES.includes(tx.senderLocation)) {
+    riskScore += 22;
+    triggeredRules.push("High-risk geolocation detected");
+  }
+  if (tx.accountAge < 30) {
+    riskScore += tx.accountAge < 7 ? 28 : 16;
+    triggeredRules.push(tx.accountAge < 7 ? "New account under 7 days" : "Recently created account");
+  }
+  if (tx.previousTxCount > 30) {
+    riskScore += tx.previousTxCount > 50 ? 18 : 12;
+    triggeredRules.push("High transaction velocity");
+  }
+  if (tx.isNewDevice) {
+    riskScore += 18;
+    triggeredRules.push("New or unrecognized device");
+  }
+  if (tx.hourOfDay < 5) {
+    riskScore += 14;
+    triggeredRules.push("Unusual late-night transaction time");
+  }
+  if (["agent_deposit", "agent_withdrawal"].includes(tx.type) && tx.amount > 50000) {
+    riskScore += 10;
+    triggeredRules.push("Large agent transaction");
+  }
+
+  riskScore = Math.min(100, riskScore);
+  const fraudLabel = riskScore >= 70 ? "fraudulent" : riskScore >= 40 ? "suspicious" : "clean";
+  const featureImportance = [
+    { feature: "Transaction Amount", value: tx.amount, importance: Math.min(0.95, tx.amount / 600000), direction: tx.amount > 50000 ? "increases_risk" : "neutral", description: `${formatNGN(tx.amount)} transaction amount` },
+    { feature: "Account Age", value: tx.accountAge, importance: tx.accountAge < 30 ? 0.75 : 0.12, direction: tx.accountAge < 30 ? "increases_risk" : "decreases_risk", description: `Account is ${tx.accountAge} days old` },
+    { feature: "Device Recognition", value: tx.isNewDevice ? 1 : 0, importance: tx.isNewDevice ? 0.7 : 0.08, direction: tx.isNewDevice ? "increases_risk" : "decreases_risk", description: tx.isNewDevice ? "New device fingerprint" : "Known device fingerprint" },
+    { feature: "Location", value: tx.senderLocation, importance: HIGH_RISK_CITIES.includes(tx.senderLocation) ? 0.7 : 0.1, direction: HIGH_RISK_CITIES.includes(tx.senderLocation) ? "increases_risk" : "neutral", description: `${tx.senderLocation} transaction origin` },
+  ].sort((a, b) => b.importance - a.importance);
+
+  return {
+    riskScore,
+    isFraud: fraudLabel === "fraudulent",
+    fraudLabel,
+    triggeredRules,
+    featureImportance,
+    explanation: fraudLabel === "clean"
+      ? `Transaction appears legitimate with a ${riskScore}/100 risk score.`
+      : `Transaction is ${fraudLabel} with a ${riskScore}/100 risk score. Key signals: ${triggeredRules.slice(0, 3).join(", ") || "mixed behavioral indicators"}.`,
+    modelUsed: "Browser Simulator",
+    confidence: Math.min(0.99, 0.5 + Math.abs(riskScore - 50) / 100),
+  };
+}
+
+function generateLocalBatch(config: any) {
+  const types: string[] = config.transactionTypes.length
+    ? config.transactionTypes
+    : config.includeAgentTransactions
+    ? TX_TYPES
+    : TX_TYPES.filter(type => !type.startsWith("agent_"));
+  const fraudCount = Math.round(config.count * config.fraudRate);
+  const transactions = Array.from({ length: config.count }, (_, index) => {
+    const fraudTarget = index < fraudCount;
+    const type = randomChoice(types);
+    const min = Math.min(config.amountMin, config.amountMax);
+    const max = Math.max(config.amountMin, config.amountMax);
+    const cleanMax = Math.max(min, Math.min(max, 100000));
+    const fraudMin = Math.min(max, Math.max(min, Math.floor(min + (max - min) * 0.55)));
+    const amount = fraudTarget ? randomInt(fraudMin, max) : randomInt(min, cleanMax);
+    const hourOfDay = fraudTarget && Math.random() < 0.45 ? randomInt(0, 4) : randomInt(7, 22);
+    const senderLocation = fraudTarget && Math.random() < 0.35 ? randomChoice(HIGH_RISK_CITIES) : config.location;
+    const createdAt = new Date().toISOString();
+    const tx = {
+      id: `TXN-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+      type,
+      amount,
+      currency: "NGN",
+      senderPhone: generatePhone(),
+      recipientPhone: ["send", "receive", "airtime"].includes(type) ? generatePhone() : null,
+      senderLocation,
+      deviceId: `DEV-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+      timestamp: new Date(new Date().setHours(hourOfDay, randomInt(0, 59), 0, 0)).toISOString(),
+      createdAt,
+      accountAge: fraudTarget ? randomInt(1, 60) : randomInt(90, 1800),
+      previousTxCount: fraudTarget ? randomInt(0, 100) : randomInt(5, 45),
+      hourOfDay,
+      isNewDevice: fraudTarget ? Math.random() < 0.7 : Math.random() < 0.08,
+    };
+    const analysis = analyzeLocalFraud(tx);
+    return { ...tx, ...analysis, fraudAnalysis: analysis };
+  }).sort(() => Math.random() - 0.5);
+
+  const fraudulent = transactions.filter(t => t.fraudLabel === "fraudulent").length;
+  const flagged = transactions.filter(t => t.fraudLabel !== "clean").length;
+  const totalAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
+  const avgRiskScore = transactions.reduce((sum, t) => sum + t.riskScore, 0) / transactions.length;
+
+  return {
+    transactions,
+    summary: {
+      total: transactions.length,
+      flagged,
+      fraudulent,
+      avgRiskScore: Math.round(avgRiskScore),
+      totalAmount: Math.round(totalAmount),
+    },
+  };
+}
 
 export default function Simulator() {
   const queryClient = useQueryClient();
@@ -29,21 +159,43 @@ export default function Simulator() {
   });
 
   const [result, setResult] = useState<any>(null);
+  const [runMode, setRunMode] = useState<"api" | "browser" | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const buildPayload = () => ({
+    count: Math.min(Math.max(config.count || 1, 1), 100),
+    fraudRate: Math.min(Math.max(config.fraudRate, 0), 1),
+    location: config.location,
+    amountRange: {
+      min: Math.min(config.amountMin, config.amountMax),
+      max: Math.max(config.amountMin, config.amountMax),
+    },
+    includeAgentTransactions: config.includeAgentTransactions,
+    transactionTypes: config.transactionTypes,
+  });
 
   const handleGenerate = () => {
-    generateMutation.mutate({
-      count: config.count,
-      fraudRate: config.fraudRate,
-      location: config.location,
-      amountRange: { min: config.amountMin, max: config.amountMax },
-      includeAgentTransactions: config.includeAgentTransactions,
-      transactionTypes: config.transactionTypes,
-    }, {
+    setNotice(null);
+    const payload = buildPayload();
+
+    generateMutation.mutate({ data: payload } as any, {
       onSuccess: (data) => {
         setResult(data);
+        setRunMode("api");
+        if ((data as any)?.persisted === false) {
+          saveBrowserTransactions((data as any).transactions ?? []);
+          setNotice("This batch was generated by the API and saved in this browser while the database connection catches up.");
+        }
         queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListTransactionsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetFraudAlertsQueryKey() });
+      },
+      onError: (error) => {
+        const localResult = generateLocalBatch(config);
+        saveBrowserTransactions(localResult.transactions);
+        setResult(localResult);
+        setRunMode("browser");
+        setNotice("This batch was generated in your browser and saved locally for the dashboard, transactions, explainability, metrics, and dataset pages.");
       },
     });
   };
@@ -53,9 +205,18 @@ export default function Simulator() {
     resetMutation.mutate({}, {
       onSuccess: () => {
         setResult(null);
+        setRunMode(null);
+        setNotice(null);
+        clearBrowserTransactions();
         queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListTransactionsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetFraudAlertsQueryKey() });
+      },
+      onError: () => {
+        setResult(null);
+        setRunMode(null);
+        clearBrowserTransactions();
+        setNotice("Browser results cleared. The API reset request did not complete.");
       },
     });
   };
@@ -85,6 +246,16 @@ export default function Simulator() {
           Reset All Data
         </button>
       </div>
+
+      {notice && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Simulation data is ready.</p>
+            <p className="text-xs mt-1 text-amber-700">{notice}</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Configuration Panel */}
@@ -226,6 +397,12 @@ export default function Simulator() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
                   Total volume: <strong>{formatNGN(result.summary.totalAmount)}</strong>
+                  {runMode && (
+                    <span className="ml-3 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">
+                      <Info className="h-3 w-3" />
+                      {runMode === "api" ? "API backed" : "Browser generated"}
+                    </span>
+                  )}
                 </p>
               </div>
 

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useListTransactions, useGetTransaction } from "@workspace/api-client-react";
 import { formatNGN, formatTxType, getRiskBg, getFraudLabelBg, formatRelativeTime } from "@/lib/utils";
+import { BROWSER_TRANSACTIONS_CHANGED, getBrowserTransactions, type BrowserTransaction } from "@/lib/browserTransactions";
 import { Search, ChevronDown, ChevronUp, X } from "lucide-react";
 
 function FeatureBar({ feature, importance, direction }: { feature: string; importance: number; direction: string; }) {
@@ -20,10 +21,14 @@ function FeatureBar({ feature, importance, direction }: { feature: string; impor
   );
 }
 
-function TransactionDetail({ id, onClose }: { id: string; onClose: () => void }) {
-  const { data: tx, isLoading } = useGetTransaction(id);
+function TransactionDetail({ id, localTx, onClose }: { id: string; localTx?: BrowserTransaction; onClose: () => void }) {
+  const { data: apiTx, isLoading } = useGetTransaction(
+    id,
+    { query: { enabled: !localTx } } as any,
+  );
+  const tx = localTx ?? apiTx;
 
-  if (isLoading) return (
+  if (!localTx && isLoading) return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-card rounded-xl w-full max-w-2xl p-8 animate-pulse">
         <div className="h-6 bg-muted rounded w-1/3 mb-4" />
@@ -132,13 +137,34 @@ export default function Transactions() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sortField, setSortField] = useState<"riskScore" | "amount" | "createdAt">("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [browserTransactions, setBrowserTransactions] = useState<BrowserTransaction[]>(() => getBrowserTransactions());
+
+  useEffect(() => {
+    const refreshBrowserTransactions = () => setBrowserTransactions(getBrowserTransactions());
+
+    window.addEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+    window.addEventListener("storage", refreshBrowserTransactions);
+
+    return () => {
+      window.removeEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+      window.removeEventListener("storage", refreshBrowserTransactions);
+    };
+  }, []);
 
   const { data, isLoading } = useListTransactions(
     { limit: 200, flaggedOnly },
     { query: { refetchInterval: 10000 } }
   );
 
-  const transactions = (data?.transactions ?? []).filter(tx => {
+  const apiTransactions = data?.transactions ?? [];
+  const apiIds = new Set(apiTransactions.map(tx => tx.id));
+  const combinedTransactions = [
+    ...apiTransactions,
+    ...browserTransactions.filter(tx => !apiIds.has(tx.id)),
+  ];
+
+  const transactions = combinedTransactions.filter(tx => {
+    if (flaggedOnly && tx.fraudLabel === "clean") return false;
     if (!search) return true;
     const s = search.toLowerCase();
     return tx.id.toLowerCase().includes(s) ||
@@ -168,7 +194,7 @@ export default function Transactions() {
     <div className="p-8 space-y-5 max-w-7xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Transaction Log</h1>
-        <p className="text-muted-foreground text-sm mt-1">Full audit trail with fraud analysis for all {data?.total ?? 0} transactions</p>
+        <p className="text-muted-foreground text-sm mt-1">Full audit trail with fraud analysis for all {combinedTransactions.length} transactions</p>
       </div>
 
       {/* Filters */}
@@ -215,7 +241,7 @@ export default function Transactions() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
-              {isLoading ? (
+              {isLoading && browserTransactions.length === 0 ? (
                 [...Array(10)].map((_, i) => (
                   <tr key={i}>
                     {[...Array(9)].map((_, j) => (
@@ -259,7 +285,13 @@ export default function Transactions() {
         </div>
       </div>
 
-      {selectedId && <TransactionDetail id={selectedId} onClose={() => setSelectedId(null)} />}
+      {selectedId && (
+        <TransactionDetail
+          id={selectedId}
+          localTx={browserTransactions.find(tx => tx.id === selectedId)}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </div>
   );
 }

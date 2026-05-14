@@ -1,11 +1,28 @@
+import { useEffect, useState } from "react";
 import { useGetDashboardStats, useListTransactions, useGetFraudAlerts } from "@workspace/api-client-react";
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { formatNGN, formatTxType, getRiskBg, getFraudLabelBg, getSeverityBg, formatRelativeTime } from "@/lib/utils";
+import { BROWSER_TRANSACTIONS_CHANGED, getBrowserTransactions, type BrowserTransaction } from "@/lib/browserTransactions";
+import { buildBrowserAlerts, computeBrowserStats, mergeDashboardStats } from "@/lib/browserAnalytics";
 import { ShieldAlert, TrendingUp, AlertTriangle, DollarSign, Activity } from "lucide-react";
 
 const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
 
 export default function Dashboard() {
+  const [browserTransactions, setBrowserTransactions] = useState<BrowserTransaction[]>(() => getBrowserTransactions());
+
+  useEffect(() => {
+    const refreshBrowserTransactions = () => setBrowserTransactions(getBrowserTransactions());
+
+    window.addEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+    window.addEventListener("storage", refreshBrowserTransactions);
+
+    return () => {
+      window.removeEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+      window.removeEventListener("storage", refreshBrowserTransactions);
+    };
+  }, []);
+
   const { data: stats, isLoading: statsLoading } = useGetDashboardStats({
     query: { refetchInterval: 10000 },
   });
@@ -18,7 +35,24 @@ export default function Dashboard() {
     { query: { refetchInterval: 5000 } }
   );
 
-  if (statsLoading) {
+  const hasBrowserTransactions = browserTransactions.length > 0;
+  const browserStats = computeBrowserStats(browserTransactions);
+  const effectiveStats = mergeDashboardStats(stats as any, browserStats);
+  const apiTransactions = txData?.transactions ?? [];
+  const apiIds = new Set(apiTransactions.map(tx => tx.id));
+  const effectiveTransactions = [
+    ...apiTransactions,
+    ...browserTransactions.filter(tx => !apiIds.has(tx.id)),
+  ]
+    .sort((a, b) => new Date(b.createdAt ?? b.timestamp).getTime() - new Date(a.createdAt ?? a.timestamp).getTime())
+    .slice(0, 15);
+  const browserAlerts = buildBrowserAlerts(browserTransactions);
+  const effectiveAlerts = [
+    ...(alertData?.alerts ?? []),
+    ...browserAlerts.filter(alert => !(alertData?.alerts ?? []).some(apiAlert => apiAlert.id === alert.id)),
+  ].slice(0, 10);
+
+  if (statsLoading && !hasBrowserTransactions) {
     return (
       <div className="p-8 animate-pulse space-y-4">
         <div className="h-8 bg-muted rounded w-1/3" />
@@ -32,41 +66,41 @@ export default function Dashboard() {
   const statCards = [
     {
       label: "Total Transactions",
-      value: stats?.totalTransactions?.toLocaleString() ?? "0",
+      value: effectiveStats.totalTransactions.toLocaleString(),
       icon: Activity,
       color: "text-blue-600",
       bg: "bg-blue-50",
     },
     {
       label: "Fraud Rate",
-      value: `${((stats?.fraudRate ?? 0) * 100).toFixed(1)}%`,
+      value: `${(effectiveStats.fraudRate * 100).toFixed(1)}%`,
       icon: AlertTriangle,
       color: "text-red-600",
       bg: "bg-red-50",
     },
     {
       label: "Flagged Transactions",
-      value: stats?.flaggedTransactions?.toLocaleString() ?? "0",
+      value: effectiveStats.flaggedTransactions.toLocaleString(),
       icon: ShieldAlert,
       color: "text-amber-600",
       bg: "bg-amber-50",
     },
     {
       label: "Total Volume",
-      value: formatNGN(stats?.totalAmount ?? 0),
+      value: formatNGN(effectiveStats.totalAmount),
       icon: DollarSign,
       color: "text-emerald-600",
       bg: "bg-emerald-50",
     },
   ];
 
-  const txTypeData = (stats?.byType ?? []).map(t => ({
+  const txTypeData = effectiveStats.byType.map(t => ({
     name: formatTxType(t.type),
     total: t.count,
     fraud: t.fraudCount,
   }));
 
-  const locationData = (stats?.byLocation ?? []).slice(0, 6).map(l => ({
+  const locationData = effectiveStats.byLocation.slice(0, 6).map(l => ({
     name: l.location,
     value: l.count,
     fraud: l.fraudCount,
@@ -141,13 +175,13 @@ export default function Dashboard() {
               Live
             </span>
           </div>
-          {txLoading ? (
+          {txLoading && !hasBrowserTransactions ? (
             <div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-12 bg-muted rounded animate-pulse" />)}</div>
-          ) : (txData?.transactions ?? []).length === 0 ? (
+          ) : effectiveTransactions.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">No transactions yet. Use the Simulator to generate data.</div>
           ) : (
             <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-              {(txData?.transactions ?? []).map(tx => (
+              {effectiveTransactions.map(tx => (
                 <div key={tx.id} className="flex items-center justify-between py-2.5 border-b border-border/50 last:border-0 group">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-xs font-semibold text-foreground">{tx.id}</span>
@@ -174,16 +208,16 @@ export default function Dashboard() {
             <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Fraud Alerts</h2>
             <span className="flex items-center gap-1.5 text-xs text-red-600">
               <ShieldAlert className="h-3.5 w-3.5" />
-              {alertData?.alerts?.length ?? 0} active
+              {effectiveAlerts.length} active
             </span>
           </div>
-          {alertLoading ? (
+          {alertLoading && !hasBrowserTransactions ? (
             <div className="space-y-2">{[...Array(5)].map((_, i) => <div key={i} className="h-16 bg-muted rounded animate-pulse" />)}</div>
-          ) : (alertData?.alerts ?? []).length === 0 ? (
+          ) : effectiveAlerts.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">No fraud alerts. System is clean.</div>
           ) : (
             <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-              {(alertData?.alerts ?? []).map(alert => (
+              {effectiveAlerts.map(alert => (
                 <div key={alert.id} className={`p-3 rounded-lg border ${getSeverityBg(alert.severity)}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wide">{alert.severity}</span>
@@ -205,19 +239,19 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-card border border-card-border rounded-lg p-4 text-center">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Avg Risk Score</p>
-          <p className="text-2xl font-bold mt-1 text-amber-600">{stats?.avgRiskScore ?? 0}</p>
+          <p className="text-2xl font-bold mt-1 text-amber-600">{effectiveStats.avgRiskScore}</p>
         </div>
         <div className="bg-card border border-card-border rounded-lg p-4 text-center">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Fraudulent</p>
-          <p className="text-2xl font-bold mt-1 text-red-600">{stats?.fraudulentTransactions ?? 0}</p>
+          <p className="text-2xl font-bold mt-1 text-red-600">{effectiveStats.fraudulentTransactions}</p>
         </div>
         <div className="bg-card border border-card-border rounded-lg p-4 text-center">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Recent Alerts</p>
-          <p className="text-2xl font-bold mt-1 text-orange-600">{stats?.recentAlerts ?? 0}</p>
+          <p className="text-2xl font-bold mt-1 text-orange-600">{effectiveStats.recentAlerts}</p>
         </div>
         <div className="bg-card border border-card-border rounded-lg p-4 text-center">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Blocked Amount</p>
-          <p className="text-lg font-bold mt-1 text-red-600">{formatNGN(stats?.blockedAmount ?? 0)}</p>
+          <p className="text-lg font-bold mt-1 text-red-600">{formatNGN(effectiveStats.blockedAmount)}</p>
         </div>
       </div>
     </div>

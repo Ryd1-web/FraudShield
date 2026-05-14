@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { useGetModelMetrics, useGetRocCurve, useGetTransactionVolume } from "@workspace/api-client-react";
+import { BROWSER_TRANSACTIONS_CHANGED, getBrowserTransactions, type BrowserTransaction } from "@/lib/browserTransactions";
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, Legend, ScatterChart, Scatter
+  Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 
 function MetricGauge({ label, value, max = 1, format = "pct", description, color = "blue" }: {
@@ -76,12 +78,119 @@ const CustomRocTooltip = ({ active, payload }: any) => {
   return null;
 };
 
+function safeRate(numerator: number, denominator: number) {
+  return denominator > 0 ? numerator / denominator : 0;
+}
+
+function computeLocalMetrics(transactions: BrowserTransaction[]) {
+  let truePositives = 0;
+  let trueNegatives = 0;
+  let falsePositives = 0;
+  let falseNegatives = 0;
+
+  for (const tx of transactions) {
+    const predictedFraud = tx.fraudLabel !== "clean";
+    const actualFraud = tx.isFraud === true || tx.riskScore >= 70;
+
+    if (predictedFraud && actualFraud) truePositives++;
+    else if (!predictedFraud && !actualFraud) trueNegatives++;
+    else if (predictedFraud && !actualFraud) falsePositives++;
+    else falseNegatives++;
+  }
+
+  const precision = safeRate(truePositives, truePositives + falsePositives);
+  const recall = safeRate(truePositives, truePositives + falseNegatives);
+  const specificity = safeRate(trueNegatives, trueNegatives + falsePositives);
+  const f1Score = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+
+  return {
+    precision,
+    recall,
+    f1Score,
+    accuracy: safeRate(truePositives + trueNegatives, transactions.length),
+    specificity,
+    falsePositiveRate: safeRate(falsePositives, falsePositives + trueNegatives),
+    falseNegativeRate: safeRate(falseNegatives, falseNegatives + truePositives),
+    truePositives,
+    trueNegatives,
+    falsePositives,
+    falseNegatives,
+    auc: (recall + specificity) / 2,
+  };
+}
+
+function buildLocalRoc(transactions: BrowserTransaction[]) {
+  if (transactions.length === 0) {
+    return { points: [{ fpr: 0, tpr: 0, threshold: 100 }, { fpr: 1, tpr: 1, threshold: 0 }], auc: 0 };
+  }
+
+  const points = Array.from({ length: 21 }, (_, i) => {
+    const threshold = i * 5;
+    let tp = 0;
+    let fp = 0;
+    let actualFraud = 0;
+    let actualClean = 0;
+
+    for (const tx of transactions) {
+      const isActualFraud = tx.isFraud === true || tx.riskScore >= 70;
+      if (isActualFraud) actualFraud++;
+      else actualClean++;
+      if (tx.riskScore >= threshold && isActualFraud) tp++;
+      if (tx.riskScore >= threshold && !isActualFraud) fp++;
+    }
+
+    return {
+      fpr: safeRate(fp, actualClean),
+      tpr: safeRate(tp, actualFraud),
+      threshold,
+    };
+  }).sort((a, b) => a.fpr - b.fpr);
+
+  let auc = 0;
+  for (let i = 1; i < points.length; i++) {
+    auc += (points[i].fpr - points[i - 1].fpr) * (points[i].tpr + points[i - 1].tpr) / 2;
+  }
+
+  return { points, auc: Math.abs(auc) };
+}
+
+function buildLocalVolume(transactions: BrowserTransaction[]) {
+  const buckets = new Map<string, { time: string; clean: number; suspicious: number; fraudulent: number }>();
+
+  for (const tx of transactions) {
+    const hour = new Date(tx.createdAt).getHours().toString().padStart(2, "0");
+    const time = `${hour}:00`;
+    const bucket = buckets.get(time) ?? { time, clean: 0, suspicious: 0, fraudulent: 0 };
+    if (tx.fraudLabel === "fraudulent") bucket.fraudulent++;
+    else if (tx.fraudLabel === "suspicious") bucket.suspicious++;
+    else bucket.clean++;
+    buckets.set(time, bucket);
+  }
+
+  return { data: Array.from(buckets.values()).sort((a, b) => a.time.localeCompare(b.time)) };
+}
+
 export default function Metrics() {
+  const [browserTransactions, setBrowserTransactions] = useState<BrowserTransaction[]>(() => getBrowserTransactions());
+
+  useEffect(() => {
+    const refreshBrowserTransactions = () => setBrowserTransactions(getBrowserTransactions());
+
+    window.addEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+    window.addEventListener("storage", refreshBrowserTransactions);
+
+    return () => {
+      window.removeEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+      window.removeEventListener("storage", refreshBrowserTransactions);
+    };
+  }, []);
+
   const { data: metrics, isLoading: metricsLoading } = useGetModelMetrics();
   const { data: rocData, isLoading: rocLoading } = useGetRocCurve();
   const { data: volumeData, isLoading: volumeLoading } = useGetTransactionVolume();
 
-  const isLoading = metricsLoading || rocLoading;
+  const hasBrowserTransactions = browserTransactions.length > 0;
+  const isLoading = !hasBrowserTransactions && metricsLoading && rocLoading;
 
   if (isLoading) {
     return (
@@ -93,8 +202,13 @@ export default function Metrics() {
     );
   }
 
-  const m = metrics!;
-  const rocPoints = (rocData?.points ?? []).sort((a, b) => a.fpr - b.fpr);
+  const localMetrics = computeLocalMetrics(browserTransactions);
+  const localRocData = buildLocalRoc(browserTransactions);
+  const localVolumeData = buildLocalVolume(browserTransactions);
+  const m = metrics ?? localMetrics;
+  const effectiveRocData = rocData ?? localRocData;
+  const effectiveVolumeData = volumeData ?? localVolumeData;
+  const rocPoints = (effectiveRocData.points ?? []).sort((a, b) => a.fpr - b.fpr);
   const diagLine = [{ fpr: 0, tpr: 0 }, { fpr: 1, tpr: 1 }];
 
   return (
@@ -162,13 +276,13 @@ export default function Metrics() {
       <div className="bg-card border border-card-border rounded-lg p-6">
         <div className="flex items-baseline gap-3 mb-1">
           <h2 className="font-semibold">ROC Curve</h2>
-          <span className="text-sm text-muted-foreground">AUC = <span className="font-bold text-blue-600">{rocData?.auc?.toFixed(3) ?? "—"}</span></span>
+          <span className="text-sm text-muted-foreground">AUC = <span className="font-bold text-blue-600">{effectiveRocData.auc?.toFixed(3) ?? "0.000"}</span></span>
         </div>
         <p className="text-sm text-muted-foreground mb-5">
           Receiver Operating Characteristic curve — True Positive Rate vs. False Positive Rate across all decision thresholds.
           The diagonal represents a random classifier. The larger the area under the curve, the better the model discriminates between legitimate and fraudulent transactions.
         </p>
-        {rocLoading ? (
+        {rocLoading && !hasBrowserTransactions ? (
           <div className="h-64 bg-muted animate-pulse rounded" />
         ) : (
           <ResponsiveContainer width="100%" height={300}>
@@ -207,7 +321,7 @@ export default function Metrics() {
                 stroke="#3b82f6"
                 strokeWidth={3}
                 dot={false}
-                name={`Hybrid Model (AUC=${rocData?.auc?.toFixed(3)})`}
+                name={`Hybrid Model (AUC=${effectiveRocData.auc?.toFixed(3) ?? "0.000"})`}
               />
               <Legend verticalAlign="top" />
             </LineChart>
@@ -216,12 +330,12 @@ export default function Metrics() {
       </div>
 
       {/* Transaction Volume Chart */}
-      {!volumeLoading && (volumeData?.data ?? []).length > 0 && (
+      {(!volumeLoading || hasBrowserTransactions) && (effectiveVolumeData.data ?? []).length > 0 && (
         <div className="bg-card border border-card-border rounded-lg p-6">
           <h2 className="font-semibold mb-1">Transaction Volume Over Time</h2>
           <p className="text-sm text-muted-foreground mb-4">Breakdown by fraud label across time periods</p>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={volumeData!.data}>
+            <AreaChart data={effectiveVolumeData.data}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis dataKey="time" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />

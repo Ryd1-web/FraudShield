@@ -1,15 +1,48 @@
+import { useEffect, useState } from "react";
 import { useListTransactions, useGetDashboardStats } from "@workspace/api-client-react";
 import { formatNGN, formatTxType, getRiskBg, getFraudLabelBg } from "@/lib/utils";
+import { BROWSER_TRANSACTIONS_CHANGED, getBrowserTransactions, type BrowserTransaction } from "@/lib/browserTransactions";
+import { computeBrowserStats, exportBrowserCsv, mergeDashboardStats } from "@/lib/browserAnalytics";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { Download, Database } from "lucide-react";
 
 const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"];
 
 export default function Dataset() {
+  const [browserTransactions, setBrowserTransactions] = useState<BrowserTransaction[]>(() => getBrowserTransactions());
+
+  useEffect(() => {
+    const refreshBrowserTransactions = () => setBrowserTransactions(getBrowserTransactions());
+
+    window.addEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+    window.addEventListener("storage", refreshBrowserTransactions);
+
+    return () => {
+      window.removeEventListener(BROWSER_TRANSACTIONS_CHANGED, refreshBrowserTransactions);
+      window.removeEventListener("storage", refreshBrowserTransactions);
+    };
+  }, []);
+
   const { data: txData, isLoading: txLoading } = useListTransactions({ limit: 10 });
   const { data: stats } = useGetDashboardStats();
+  const hasBrowserTransactions = browserTransactions.length > 0;
+  const browserStats = computeBrowserStats(browserTransactions);
+  const effectiveStats = mergeDashboardStats(stats as any, browserStats);
+  const apiTransactions = txData?.transactions ?? [];
+  const apiIds = new Set(apiTransactions.map(tx => tx.id));
+  const sampleTransactions = [
+    ...apiTransactions,
+    ...browserTransactions.filter(tx => !apiIds.has(tx.id)),
+  ]
+    .sort((a, b) => new Date(b.createdAt ?? b.timestamp).getTime() - new Date(a.createdAt ?? a.timestamp).getTime())
+    .slice(0, 10);
 
   const handleExport = () => {
+    if (hasBrowserTransactions) {
+      exportBrowserCsv(browserTransactions);
+      return;
+    }
+
     const a = document.createElement("a");
     a.href = "/api/analytics/export";
     a.download = "fraud_detection_dataset.csv";
@@ -17,19 +50,19 @@ export default function Dataset() {
   };
 
   const labelDist = [
-    { name: "Clean", value: (stats?.totalTransactions ?? 0) - (stats?.flaggedTransactions ?? 0), color: "#10b981" },
-    { name: "Suspicious", value: (stats?.flaggedTransactions ?? 0) - (stats?.fraudulentTransactions ?? 0), color: "#f59e0b" },
-    { name: "Fraudulent", value: stats?.fraudulentTransactions ?? 0, color: "#ef4444" },
+    { name: "Clean", value: effectiveStats.totalTransactions - effectiveStats.flaggedTransactions, color: "#10b981" },
+    { name: "Suspicious", value: effectiveStats.flaggedTransactions - effectiveStats.fraudulentTransactions, color: "#f59e0b" },
+    { name: "Fraudulent", value: effectiveStats.fraudulentTransactions, color: "#ef4444" },
   ].filter(d => d.value > 0);
 
-  const typeData = (stats?.byType ?? []).map((t, i) => ({
+  const typeData = effectiveStats.byType.map((t, i) => ({
     name: formatTxType(t.type),
     count: t.count,
     fraud: t.fraudCount,
     color: PIE_COLORS[i % PIE_COLORS.length],
   }));
 
-  const locationData = (stats?.byLocation ?? []).slice(0, 8);
+  const locationData = effectiveStats.byLocation.slice(0, 8);
 
   return (
     <div className="p-8 space-y-6 max-w-6xl mx-auto">
@@ -37,7 +70,7 @@ export default function Dataset() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dataset Explorer</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Synthetic African mobile money dataset — {stats?.totalTransactions ?? 0} transactions generated
+            Synthetic African mobile money dataset - {effectiveStats.totalTransactions} transactions generated
           </p>
         </div>
         <button
@@ -54,10 +87,10 @@ export default function Dataset() {
         <h2 className="font-semibold mb-4">Dataset Characteristics</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           {[
-            { label: "Total Records", value: stats?.totalTransactions?.toLocaleString() ?? "0" },
-            { label: "Fraud Rate", value: `${((stats?.fraudRate ?? 0) * 100).toFixed(1)}%` },
-            { label: "Total Volume", value: formatNGN(stats?.totalAmount ?? 0) },
-            { label: "Avg Risk Score", value: `${stats?.avgRiskScore ?? 0} / 100` },
+            { label: "Total Records", value: effectiveStats.totalTransactions.toLocaleString() },
+            { label: "Fraud Rate", value: `${(effectiveStats.fraudRate * 100).toFixed(1)}%` },
+            { label: "Total Volume", value: formatNGN(effectiveStats.totalAmount) },
+            { label: "Avg Risk Score", value: `${effectiveStats.avgRiskScore} / 100` },
             { label: "Countries", value: "Nigeria (NGN)" },
             { label: "Transaction Types", value: "7 types" },
             { label: "Coverage", value: "20 Nigerian cities" },
@@ -102,7 +135,7 @@ export default function Dataset() {
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: d.color }} />
                       {d.name}
                     </span>
-                    <span className="font-medium">{d.value} ({stats?.totalTransactions ? ((d.value / stats.totalTransactions) * 100).toFixed(1) : 0}%)</span>
+                    <span className="font-medium">{d.value} ({effectiveStats.totalTransactions ? ((d.value / effectiveStats.totalTransactions) * 100).toFixed(1) : 0}%)</span>
                   </div>
                 ))}
               </div>
@@ -169,11 +202,17 @@ export default function Dataset() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
-              {txLoading ? (
+              {txLoading && !hasBrowserTransactions ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i}>{[...Array(9)].map((_, j) => <td key={j} className="px-4 py-3"><div className="h-3 bg-muted rounded animate-pulse" /></td>)}</tr>
                 ))
-              ) : (txData?.transactions ?? []).map(tx => (
+              ) : sampleTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                    No records yet. Use the Simulator to generate data.
+                  </td>
+                </tr>
+              ) : sampleTransactions.map(tx => (
                 <tr key={tx.id} className="hover:bg-muted/20">
                   <td className="px-4 py-3 font-mono text-muted-foreground">{tx.id}</td>
                   <td className="px-4 py-3">{formatTxType(tx.type)}</td>

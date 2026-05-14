@@ -1,16 +1,29 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { transactionsTable } from "@workspace/db";
-import { analyzeFraud } from "../lib/fraudEngine";
+import { analyzeFraud, DEFAULT_CONFIG } from "../lib/fraudEngine";
 import { generateBatch } from "../lib/nigerianDataGenerator";
 import { getActiveConfig } from "./config";
 
 const router = Router();
+const CONFIG_TIMEOUT_MS = 1500;
+const PERSIST_TIMEOUT_MS = 2500;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(fallback), timeoutMs);
+
+    promise
+      .then((value) => resolve(value))
+      .catch(() => resolve(fallback))
+      .finally(() => clearTimeout(timeout));
+  });
+}
 
 router.post("/generate", async (req, res) => {
   try {
     const body = req.body;
-    const config = await getActiveConfig();
+    const config = await withTimeout(getActiveConfig(), CONFIG_TIMEOUT_MS, DEFAULT_CONFIG);
 
     const generatorConfig = {
       count: Math.min(Number(body.count) || 10, 100),
@@ -44,7 +57,17 @@ router.post("/generate", async (req, res) => {
       };
     });
 
-    await db.insert(transactionsTable).values(analyzed);
+    let persisted = true;
+    try {
+      persisted = await withTimeout(
+        db.insert(transactionsTable).values(analyzed).then(() => true),
+        PERSIST_TIMEOUT_MS,
+        false,
+      );
+    } catch (dbErr) {
+      persisted = false;
+      req.log.warn({ err: dbErr }, "Generated transactions but could not persist them");
+    }
 
     const fraudulent = analyzed.filter(t => t.fraudLabel === "fraudulent").length;
     const flagged = analyzed.filter(t => t.fraudLabel !== "clean").length;
@@ -53,6 +76,7 @@ router.post("/generate", async (req, res) => {
 
     res.json({
       transactions: analyzed,
+      persisted,
       summary: {
         total: analyzed.length,
         flagged,
