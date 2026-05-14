@@ -74,7 +74,7 @@ router.post("/generate", async (req, res) => {
     const totalAmount = analyzed.reduce((sum, t) => sum + t.amount, 0);
     const avgRiskScore = analyzed.reduce((sum, t) => sum + t.riskScore, 0) / analyzed.length;
 
-    res.json({
+    return res.json({
       transactions: analyzed,
       persisted,
       summary: {
@@ -87,17 +87,17 @@ router.post("/generate", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Failed to generate transactions");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
 router.post("/reset", async (req, res) => {
   try {
     await db.delete(transactionsTable);
-    res.json({ message: "All transaction data has been reset successfully." });
+    return res.json({ message: "All transaction data has been reset successfully." });
   } catch (err) {
     req.log.error({ err }, "Failed to reset simulator");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

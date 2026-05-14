@@ -13,10 +13,10 @@ router.post("/analyze", async (req, res) => {
     const config = await getActiveConfig();
     const body = req.body;
     const analysis = analyzeFraud(body, config);
-    res.json(analysis);
+    return res.json(analysis);
   } catch (err) {
     req.log.error({ err }, "Failed to analyze fraud");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -57,10 +57,10 @@ router.get("/alerts", async (req, res) => {
       };
     });
 
-    res.json({ alerts });
+    return res.json({ alerts });
   } catch (err) {
     req.log.error({ err }, "Failed to get fraud alerts");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

@@ -26,10 +26,10 @@ export async function getActiveConfig(): Promise<ModelConfig> {
 router.get("/", async (req, res) => {
   try {
     const config = await getActiveConfig();
-    res.json(config);
+    return res.json(config);
   } catch (err) {
     req.log.error({ err }, "Failed to get config");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -39,10 +39,10 @@ router.put("/", async (req, res) => {
 
     await db.insert(modelConfigTable).values({ config: config as any });
 
-    res.json(config);
+    return res.json(config);
   } catch (err) {
     req.log.error({ err }, "Failed to update config");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
