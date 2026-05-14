@@ -202,7 +202,7 @@ export default function Simulator() {
 
   const handleReset = () => {
     if (!confirm("Reset all transaction data? This cannot be undone.")) return;
-    resetMutation.mutate({}, {
+    resetMutation.mutate(undefined, {
       onSuccess: () => {
         setResult(null);
         setRunMode(null);

@@ -24,15 +24,15 @@ export default function Dashboard() {
   }, []);
 
   const { data: stats, isLoading: statsLoading } = useGetDashboardStats({
-    query: { refetchInterval: 10000 },
+    query: ({ refetchInterval: 10000 } as unknown) as any,
   });
   const { data: txData, isLoading: txLoading } = useListTransactions(
     { limit: 15 },
-    { query: { refetchInterval: 5000 } }
+    ({ query: { refetchInterval: 5000 } } as unknown) as any
   );
   const { data: alertData, isLoading: alertLoading } = useGetFraudAlerts(
     { limit: 10 },
-    { query: { refetchInterval: 5000 } }
+    ({ query: { refetchInterval: 5000 } } as unknown) as any
   );
 
   const hasBrowserTransactions = browserTransactions.length > 0;

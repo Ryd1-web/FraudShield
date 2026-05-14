@@ -153,7 +153,7 @@ export default function Transactions() {
 
   const { data, isLoading } = useListTransactions(
     { limit: 200, flaggedOnly },
-    { query: { refetchInterval: 10000 } }
+    ({ query: { refetchInterval: 10000 } } as unknown) as any
   );
 
   const apiTransactions = data?.transactions ?? [];

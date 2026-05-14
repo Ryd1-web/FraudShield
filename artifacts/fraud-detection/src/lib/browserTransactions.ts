@@ -7,10 +7,12 @@ export type BrowserTransaction = Record<string, any> & {
 };
 
 function normalizeTransaction(tx: Record<string, any>): BrowserTransaction {
-  const createdAt = tx.createdAt ?? tx.timestamp ?? new Date().toISOString();
+  const createdAt = String(tx.createdAt ?? tx.timestamp ?? new Date().toISOString());
+  const id = String(tx.id ?? tx.transactionId ?? `${createdAt}-${Math.random().toString(36).slice(2, 8)}`);
 
   return {
     ...tx,
+    id,
     createdAt,
     timestamp: tx.timestamp ?? createdAt,
     currency: tx.currency ?? "NGN",

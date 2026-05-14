@@ -58,7 +58,7 @@ export default function Explainability() {
 
   const { data, isLoading } = useListTransactions(
     { limit: 50, flaggedOnly: true },
-    { query: { refetchInterval: 15000 } }
+    ({ query: { refetchInterval: 15000 } } as unknown) as any
   );
 
   const apiTransactions = data?.transactions ?? [];
