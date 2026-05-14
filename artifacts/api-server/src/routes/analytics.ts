@@ -56,7 +56,7 @@ router.get("/dashboard", async (req, res) => {
     const oneHourAgo = new Date(Date.now() - 3600000);
     const recentAlerts = flagged.filter(t => new Date(t.createdAt) > oneHourAgo).length;
 
-    res.json({
+    return res.json({
       totalTransactions: allTxns.length,
       flaggedTransactions: flagged.length,
       fraudulentTransactions: fraudulent.length,
@@ -70,7 +70,7 @@ router.get("/dashboard", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get dashboard stats");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -123,7 +123,7 @@ router.get("/metrics", async (req, res) => {
     // AUC approximation
     const auc = (recall + specificity) / 2;
 
-    res.json({
+    return res.json({
       precision: Math.round(precision * 1000) / 1000,
       recall: Math.round(recall * 1000) / 1000,
       f1Score: Math.round(f1Score * 1000) / 1000,
@@ -139,7 +139,7 @@ router.get("/metrics", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Failed to get model metrics");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -198,10 +198,10 @@ router.get("/roc-curve", async (req, res) => {
       auc += (points[i].fpr - points[i - 1].fpr) * (points[i].tpr + points[i - 1].tpr) / 2;
     }
 
-    res.json({ points, auc: Math.round(Math.abs(auc) * 1000) / 1000 });
+    return res.json({ points, auc: Math.round(Math.abs(auc) * 1000) / 1000 });
   } catch (err) {
     req.log.error({ err }, "Failed to get ROC curve");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -233,10 +233,10 @@ router.get("/transaction-volume", async (req, res) => {
       .map(([time, v]) => ({ time, ...v }))
       .sort((a, b) => a.time.localeCompare(b.time));
 
-    res.json({ data });
+    return res.json({ data });
   } catch (err) {
     req.log.error({ err }, "Failed to get transaction volume");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

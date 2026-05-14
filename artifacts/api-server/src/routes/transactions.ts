@@ -88,10 +88,10 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Transaction not found" });
     }
 
-    res.json(result[0]);
+    return res.json(result[0]);
   } catch (err) {
     req.log.error({ err }, "Failed to get transaction");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
