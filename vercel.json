@@ -2,7 +2,6 @@
   "version": 2,
   "installCommand": "corepack enable pnpm && corepack use pnpm@9 && pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/fraud-detection build",
-  "outputDirectory": "artifacts/fraud-detection/dist/public",
   "functions": {
     "api/**/*.ts": {
       "runtime": "nodejs20.x"
@@ -10,12 +9,17 @@
   },
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
+      "src": "/api(.*)",
+      "dest": "/api$1"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/artifacts/fraud-detection/dist/public/assets/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/artifacts/fraud-detection/dist/public/index.html"
     }
-  ]
+  ],
+  "public": "artifacts/fraud-detection/dist/public"
 }
