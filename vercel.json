@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "buildCommand": "pnpm --filter @workspace/fraud-detection build",
+  "outputDirectory": "artifacts/fraud-detection/dist/public",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}
