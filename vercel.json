@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "installCommand": "corepack enable pnpm && corepack use pnpm@9 && pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/fraud-detection build",
   "outputDirectory": "artifacts/fraud-detection/dist/public",
   "functions": {
