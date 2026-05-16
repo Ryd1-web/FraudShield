@@ -33,10 +33,10 @@ router.get("/", async (req, res) => {
 
     const total = totalResult[0]?.count || 0;
 
-    res.json({ transactions: filtered, total });
+    return res.json({ transactions: filtered, total });
   } catch (err) {
     req.log.error({ err }, "Failed to list transactions");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -69,10 +69,10 @@ router.post("/", async (req, res) => {
     };
 
     const inserted = await db.insert(transactionsTable).values(tx).returning();
-    res.status(201).json(inserted[0]);
+    return res.status(201).json(inserted[0]);
   } catch (err) {
     req.log.error({ err }, "Failed to create transaction");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
