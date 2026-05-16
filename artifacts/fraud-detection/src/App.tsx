@@ -1,5 +1,7 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { setBaseUrl } from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
@@ -43,6 +45,12 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    // Allow overriding API base at build/runtime via Vite env var.
+    // If not set, the client will use relative paths (good for same-origin APIs).
+    const apiUrl = (import.meta.env as any).VITE_API_URL ?? null;
+    setBaseUrl(apiUrl);
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
